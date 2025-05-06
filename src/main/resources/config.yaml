@@ -1,0 +1,38 @@
+tables:
+  store_sales:
+    schema:
+      # Column Name: Type String (Using Trino types)
+      - ss_item_sk: BIGINT
+      - ss_ticket_number: BIGINT
+      - ss_quantity: INTEGER
+      - ss_sold_date_sk: BIGINT
+      - ss_store_sk: BIGINT
+      - ss_net_paid: DECIMAL(7,2)
+  items:
+    schema:
+      - i_item_sk: BIGINT
+      - i_item_id: VARCHAR
+      - i_category: VARCHAR
+  stores:
+    schema:
+      - s_store_sk: BIGINT
+      - s_store_id: VARCHAR
+      - s_state: VARCHAR
+
+materializedViews:
+  mv_store_sales_filtered_by_qty:
+    definition: >
+      SELECT ss_item_sk, ss_ticket_number, ss_quantity, ss_store_sk, ss_net_paid
+      FROM store_sales
+      WHERE ss_quantity > 10
+    # Name of the actual table storing the MV results (e.g., an Iceberg table)
+    targetTable: iceberg_mv_store_sales_qty10
+
+  # Example of another MV (won't be matched by initial rules)
+  #mv_store_sales_ca:
+  #   definition: >
+  #     SELECT ss_item_sk, ss_ticket_number, ss_quantity
+  #     FROM store_sales AS s
+  #     JOIN stores AS st ON s.ss_store_sk = st.s_store_sk
+  #     WHERE st.s_state = 'CA'
+  #   targetTable: iceberg_mv_store_sales_ca
