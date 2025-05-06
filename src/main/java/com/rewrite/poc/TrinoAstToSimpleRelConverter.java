@@ -73,24 +73,16 @@ public class TrinoAstToSimpleRelConverter extends AstVisitor<SimpleRelNode, Void
     // --- Helper methods for processing clauses ---
 
     private SimpleRelNode processFromClause(QuerySpecification node) {
-        if (node.getFrom().isEmpty() || !(node.getFrom().get() instanceof Table)) {
-             throw new UnsupportedOperationException("POC only supports single table FROM clause (No Joins, Subqueries, etc. in FROM)");
+        if (node.getFrom().isEmpty()) {
+            // This case might be invalid SQL or represent something like VALUES, not handled.
+            throw new UnsupportedOperationException("Query without FROM clause is not supported.");
         }
-        Table table = (Table) node.getFrom().get();
-        // Handle potential qualified names (schema.table) -> get suffix for table name
-        String tableName = table.getName().getSuffix();
-        //System.out.println("AST->IR: Found FROM table: " + tableName);
-
-        // Look up schema from config
-        Map<String, String> baseSchema = config.getTableSchema(tableName); // Throws if table not found
-         if (baseSchema == null || baseSchema.isEmpty()) {
-             // Config handles not found, but check for empty schema just in case
-             throw new RuntimeException("Schema found but is empty for table in config: " + tableName);
-         }
-         //System.out.println("AST->IR: Creating SimpleScan with schema: " + baseSchema.keySet());
-         // Important: Use a mutable copy for the schema if needed downstream, though SimpleScan makes it unmodifiable
-         return new SimpleScan(tableName, new LinkedHashMap<>(baseSchema));
+        // Delegate processing of the relation in the FROM clause to the appropriate visitor method
+        // (e.g., visitTable, visitJoin).
+        //System.out.println("AST->IR: Processing FROM clause relation: " + node.getFrom().get().getClass().getSimpleName());
+        return process(node.getFrom().get(), null); // Pass null context
     }
+
 
     private SimpleRelNode processWhereClause(QuerySpecification node, SimpleRelNode inputPlan) {
          if (node.getWhere().isPresent()) {
@@ -219,12 +211,72 @@ public class TrinoAstToSimpleRelConverter extends AstVisitor<SimpleRelNode, Void
 
     @Override
     protected SimpleRelNode visitTable(Table node, Void context) {
-         throw new UnsupportedOperationException("visitTable should not be called directly in this converter logic.");
+         // This method is now called by process() when processing the FROM clause relation.
+         // Handle potential qualified names (schema.table) -> get suffix for table name
+         String tableName = node.getName().getSuffix();
+         //System.out.println("AST->IR: Visiting Table: " + tableName);
+
+         // Look up schema from config
+         Map<String, String> baseSchema = config.getTableSchema(tableName); // Throws if table not found
+         if (baseSchema == null || baseSchema.isEmpty()) {
+             // Config handles not found, but check for empty schema just in case
+             throw new RuntimeException("Schema found but is empty for table in config: " + tableName);
+         }
+         //System.out.println("AST->IR: Creating SimpleScan with schema: " + baseSchema.keySet());
+         // Important: Use a mutable copy for the schema if needed downstream, though SimpleScan makes it unmodifiable
+         return new SimpleScan(tableName, new LinkedHashMap<>(baseSchema));
     }
 
      @Override
     protected SimpleRelNode visitJoin(Join node, Void context) {
-         throw new UnsupportedOperationException("JOIN operations are not supported in this POC.");
+         //System.out.println("AST->IR: Visiting Join");
+
+         // 1. Recursively process left and right inputs
+         SimpleRelNode leftInput = process(node.getLeft(), context);
+         SimpleRelNode rightInput = process(node.getRight(), context);
+
+         // 2. Determine Join Type (POC: Only INNER supported)
+         SimpleJoin.JoinType joinType;
+         if (node.getType() == Join.Type.INNER) {
+             joinType = SimpleJoin.JoinType.INNER;
+             //System.out.println("AST->IR:   Join Type: INNER");
+         } else {
+             throw new UnsupportedOperationException("Unsupported JOIN type: " + node.getType() + ". Only INNER joins are supported.");
+         }
+
+         // 3. Process Join Condition (POC: Only JoinOn supported)
+         SimpleExpression condition;
+         if (node.getCriteria().isPresent() && node.getCriteria().get() instanceof JoinOn) {
+             JoinOn joinOn = (JoinOn) node.getCriteria().get();
+             Expression conditionExpr = joinOn.getExpression();
+             condition = new SimpleExpression(conditionExpr);
+             //System.out.println("AST->IR:   Join Condition: " + condition.getExpressionString());
+         } else if (node.getType() == Join.Type.CROSS) {
+             // Allow CROSS JOIN which has no criteria, represent condition as TRUE?
+             // Or maybe Cross Join should be a separate IR node? For now, treat as INNER with TRUE.
+             // This might need refinement depending on how rules handle it.
+             System.err.println("WARN: CROSS JOIN encountered, treating as INNER JOIN with TRUE condition for now.");
+             condition = SimpleExpression.TRUE_RESIDUAL; // Or handle differently?
+         }
+         else {
+             throw new UnsupportedOperationException("Unsupported JOIN criteria: " +
+                     (node.getCriteria().isPresent() ? node.getCriteria().get().getClass().getSimpleName() : "None") +
+                     ". Only ON clause is supported for INNER joins.");
+         }
+
+         // 4. Create and return SimpleJoin node
+         return new SimpleJoin(leftInput, rightInput, joinType, condition);
+    }
+
+    @Override
+    protected SimpleRelNode visitAliasedRelation(AliasedRelation node, Void context) {
+        // Process the underlying relation (the actual Table, Join, etc.)
+        SimpleRelNode underlyingPlan = process(node.getRelation(), context);
+        // For this POC, we can often ignore the alias itself, as the structure and
+        // schemas of the underlying plan nodes carry the necessary info.
+        // A more complex system might need to track aliases for name resolution.
+        // System.out.println("AST->IR: Visited AliasedRelation (Alias: " + node.getAlias().getValue() + "), returning underlying plan.");
+        return underlyingPlan;
     }
 
      @Override

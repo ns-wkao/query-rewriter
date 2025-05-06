@@ -16,6 +16,8 @@ public interface SimpleNodeVisitor<R, C> {
 
     R visitProject(SimpleProject node, C context);
 
+    R visitSimpleJoin(SimpleJoin node, C context); // Added for Join support
+
     // Potentially add visitAggregate, visitJoin etc. later
 
     /**
