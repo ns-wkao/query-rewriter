@@ -39,6 +39,10 @@ public class SimpleSubstitutionVisitor implements SimpleNodeVisitor<SimpleRelNod
         this.converter = Objects.requireNonNull(converter, "converter is null");
         this.materializedViews = config.getMaterializedViews() != null ? config.getMaterializedViews() : Collections.emptyMap();
         this.rules = List.of(
+            // Order might matter depending on rule specificity. Add Join rule.
+            // Let's try putting it first, as it might be more specific than ProjectFilterScan.
+            new ProjectJoinMatchRule(),
+            new JoinMatchRule(),
             new ProjectFilterScanMatchRule(),
             new FilterScanMatchRule()
         );
@@ -105,6 +109,29 @@ public class SimpleSubstitutionVisitor implements SimpleNodeVisitor<SimpleRelNod
         // 3. Try to match the potentially rebuilt Project node against MVs
         return tryMatchAndReplace(candidateNode);
     }
+
+    @Override
+    public SimpleRelNode visitSimpleJoin(SimpleJoin node, Void context) {
+        //System.out.println("Visitor: Visiting Join: " + node.getCondition());
+        // 1. Visit child inputs
+        SimpleRelNode originalLeft = node.getLeftInput();
+        SimpleRelNode originalRight = node.getRightInput();
+        SimpleRelNode rewrittenLeft = originalLeft.accept(this, context); // Recursive call
+        SimpleRelNode rewrittenRight = originalRight.accept(this, context); // Recursive call
+
+        // 2. Rebuild join node if inputs changed, otherwise reuse original node
+        SimpleRelNode candidateNode;
+        if (rewrittenLeft != originalLeft || rewrittenRight != originalRight) {
+            // Use withInputs to create a new Join node with potentially rewritten children
+            candidateNode = node.withInputs(List.of(rewrittenLeft, rewrittenRight));
+        } else {
+            candidateNode = node; // No change in children, reuse original node
+        }
+
+        // 3. Try to match the potentially rebuilt Join node against MVs
+        return tryMatchAndReplace(candidateNode);
+    }
+
 
     // --- Default/Fallback Visitor Method ---
     @Override

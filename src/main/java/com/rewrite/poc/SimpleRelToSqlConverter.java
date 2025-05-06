@@ -130,6 +130,41 @@ public class SimpleRelToSqlConverter implements SimpleNodeVisitor<String, Atomic
                              node.getNodeType(), inputsStr);
     }
 
+    @Override
+    public String visitSimpleJoin(SimpleJoin node, AtomicInteger aliasCounter) {
+        //System.out.println("SQLConverter: Visiting Join(" + node.getJoinType() + ", " + node.getCondition() + ")");
+
+        String leftSql = node.getLeftInput().accept(this, aliasCounter);
+        String rightSql = node.getRightInput().accept(this, aliasCounter);
+        String condition = node.getCondition().getExpressionString();
+        SimpleJoin.JoinType joinType = node.getJoinType();
+
+        String joinKeyword = joinType.toString(); // Assuming toString() returns "INNER", "LEFT", etc.
+
+        // Handle different input types (table names vs. subqueries)
+        boolean leftIsSimple = isSimpleIdentifier(leftSql);
+        boolean rightIsSimple = isSimpleIdentifier(rightSql);
+
+        String leftTable = leftSql;
+        String rightTable = rightSql;
+
+        if (!leftIsSimple) {
+            String alias = "lt" + aliasCounter.incrementAndGet();
+            leftTable = String.format("(\n%s\n) AS %s", indentSQLBlock(leftSql, 1), alias);
+        }
+
+        if (!rightIsSimple) {
+            String alias = "rt" + aliasCounter.incrementAndGet();
+            rightTable = String.format("(\n%s\n) AS %s", indentSQLBlock(rightSql, 1), alias);
+        }
+
+        return String.format("SELECT *\nFROM %s\n%s JOIN %s ON %s",
+                             leftTable,
+                             joinKeyword,
+                             rightTable,
+                             condition);
+    }
+
     /**
      * Helper to indent each line of a potentially multi-line SQL block.
      */

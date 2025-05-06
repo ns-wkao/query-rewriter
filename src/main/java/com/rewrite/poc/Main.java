@@ -45,7 +45,7 @@ public class Main {
         String queryResidualBoth = "SELECT ss_item_sk, ss_net_paid "
                                   + "FROM store_sales WHERE ss_quantity > 10 AND ss_store_sk = 123";
         String queryNoMatchFilter = "SELECT ss_item_sk, ss_net_paid FROM store_sales WHERE ss_store_sk = 5";
-        String queryUnsupportedJoin = "SELECT s.ss_item_sk FROM store_sales s JOIN items i ON s.ss_item_sk = i.i_item_sk";
+        String queryJoinSelectsAvailableCol = "SELECT i.i_category FROM store_sales s JOIN items i ON s.ss_item_sk = i.i_item_sk";
 
 
         // --- Run Tests ---
@@ -54,7 +54,7 @@ public class Main {
         runRewriteTest("Residual Projection", converter, visitor, sqlConverter, queryResidualProj);
         runRewriteTest("Residual Filter & Projection", converter, visitor, sqlConverter, queryResidualBoth);
         runRewriteTest("No Match (Filter)", converter, visitor, sqlConverter, queryNoMatchFilter);
-        runRewriteTest("Unsupported Join", converter, visitor, sqlConverter, queryUnsupportedJoin);
+        runRewriteTest("Join Rewrite (Select Category)", converter, visitor, sqlConverter, queryJoinSelectsAvailableCol);
 
         System.out.println("\n--- POC Run Complete ---");
     }
